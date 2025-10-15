@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// 🔐 User model — for authentication (Admin / Normal login)
+//
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("user") // 'admin' or 'user'
+  createdAt DateTime @default(now())
+}
+
+model Domain {
+  id                 Int      @id @default(autoincrement())
+  domainHost         String
+  loginId            String
+  loginPass          String
+  customerId         String
+  domainName         String
+  domainPurchaseDate DateTime
+  domainExpiryDate   DateTime
+  domainPrice        Int
+  domainEmailHost    String
+  emailHostPurchase  DateTime
+  emailHostExpiry    DateTime
+  emailPrice         Int
+  emailCount         Int
+  emailAddresses     String?
+  createdAt          DateTime @default(now())
+
+  // Relationship: one domain → many agents
+  agents Agent[]
+}
+
+model Agent {
+  id            Int      @id @default(autoincrement())
+  agentName     String
+  empId         String?  @unique
+  agentEmail    String   @unique
+  agentPassword String
+  adminId       String // can store role like 'Admin' or 'Normal'
+  createdAt     DateTime @default(now())
+
+  // Relationship: each agent belongs to one domain
+  domainId Int
+  domain   Domain @relation(fields: [domainId], references: [id])
+}
