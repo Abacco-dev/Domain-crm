@@ -44,7 +44,7 @@ model Domain {
 model Agent {
   id            Int      @id @default(autoincrement())
   agentName     String
-  empId         String?  @unique
+  empId         String? 
   agentEmail    String   @unique
   agentPassword String
   adminId       String // can store role like 'Admin' or 'Normal'
