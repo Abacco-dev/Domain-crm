@@ -224,7 +224,7 @@ const handleSaveAgent = async () => {
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}api/domains/${domainId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/domains/${domainId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
