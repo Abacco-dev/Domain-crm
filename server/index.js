@@ -7,6 +7,11 @@ import userRoutes from "./src/routes/userRoutes.js";
 import authRoutes from "./src/routes/authRoutes.js";
 import agentRoutes from "./src/routes/agentRoutes.js";
 import customerDomainRoutes from "./src/routes/customerDomainRoutes.js";
+import manageRoutes from "./src/routes/manageRoutes.js";
+import allInfoRoutes from "./src/routes/allInfoRoutes.js";
+import domainRoutes from "./src/routes/domainRoutes.js";
+import emailRoutes from "./src/routes/emails.js";
+import employeesRoutes from "./src/routes/employeesRoutes.js";
 
 dotenv.config();
 
@@ -21,6 +26,13 @@ app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/agents", agentRoutes);
 app.use("/api/domains", customerDomainRoutes);
+app.use("/api/manage", manageRoutes);
+
+app.use("/api/all-info", allInfoRoutes);
+app.use("/api/domain-manager", domainRoutes);
+app.use("/api/manage/emails", emailRoutes);
+app.use("/api/employees", employeesRoutes);
+
 
 // Test route
 app.get("/", (req, res) => {
