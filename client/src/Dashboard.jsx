@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import AddDomainForm from "./AddDomainForm";
 import AllInfo from "./AllInfo";
 import ExpireInfo from "./ExpireInfo";
+import ManagePanel from "./ManagePanel";
+
 
 export default function Dashboard() {
   // Load the last selected tab from localStorage or default to "add"
@@ -18,8 +20,10 @@ export default function Dashboard() {
   const menuItems = [
     { id: "add", label: "Add Domain Info", icon: Plus, color: "text-green-600", bgColor: "bg-green-50", activeBg: "bg-green-100" },
     { id: "all", label: "All Information", icon: List, color: "text-indigo-600", bgColor: "bg-indigo-50", activeBg: "bg-indigo-100" },
-    { id: "expire", label: "Expiry Dashboard", icon: AlertTriangle, color: "text-red-600", bgColor: "bg-red-50", activeBg: "bg-red-100" }
+    { id: "expire", label: "Expiry Dashboard", icon: AlertTriangle, color: "text-red-600", bgColor: "bg-red-50", activeBg: "bg-red-100" },
+    { id: "manage", label: "Management Panel", icon: Globe, color: "text-amber-600", bgColor: "bg-amber-50", activeBg: "bg-amber-100" },
   ];
+
 
   const getCurrentPageTitle = () => {
     const item = menuItems.find(item => item.id === currentTab);
@@ -30,7 +34,7 @@ export default function Dashboard() {
     localStorage.removeItem("authToken"); // Example
     navigate("/");
   };
-  
+
 
 
   // Update localStorage whenever the tab changes
@@ -82,7 +86,8 @@ export default function Dashboard() {
 
           {/* Navigation Menu */}
           <nav className="flex-1 p-4 space-y-2">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-3">Navigation</p>
+            <div></div>
+            {/* <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 mb-3">Navigation</p> */}
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
@@ -138,6 +143,8 @@ export default function Dashboard() {
           {currentTab === "add" && <AddDomainForm />}
           {currentTab === "all" && <AllInfo />}
           {currentTab === "expire" && <ExpireInfo />}
+          {currentTab === "manage" && <ManagePanel />}
+
         </div>
       </main>
     </div>

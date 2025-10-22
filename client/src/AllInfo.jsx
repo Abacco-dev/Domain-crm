@@ -1,1071 +1,879 @@
 import { useState, useEffect } from "react";
-import { Search, Globe, Mail, User, Calendar, Lock, ExternalLink, X, ChevronRight, Eye, EyeOff, Edit } from "lucide-react";
+import {
+  Search,
+  Globe,
+  Mail,
+  User,
+  Calendar,
+  Lock,
+  ExternalLink,
+  X,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Edit,
+  Server,
+  Layers,
+  Users,
+  ArrowLeft,
+  Building2,
+  Calendar as CalendarIcon,
+  DollarSign,
+} from "lucide-react";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 export default function AllInfo() {
-  // ===== BACKEND DATA (Your original dummy data - unchanged) =====
-  const [agents, setAgents] = useState([]);
-
-  const [domains, setDomains] = useState([]);
-
-  const [emailAgents, setEmailAgents] = useState([]);
+  const [hosts, setHosts] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  // ===== END BACKEND DATA =====
-
-  // Backend integration would look like this:
-
-  useEffect(() => {
-    // Fetch agents data
-    const fetchAgents = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/agents`);
-        const data = await response.json();
-
-        setAgents(data);
-      } catch (error) {
-        console.error('Error fetching agents:', error);
-      }
-    };
-
-    // Fetch domains data
-    const fetchDomains = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/domains`);
-        const data = await response.json();
-        setDomains(() => {
-          const unique = [];
-          const seen = new Set();
-          for (const d of data) {
-            if (!seen.has(d.id)) {
-              unique.push(d);
-              seen.add(d.id);
-            }
-          }
-          return unique;
-        });
-      } catch (error) {
-        console.error('Error fetching domains:', error);
-      }
-    };
-
-    const fetchEmailAgents = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/agents`);
-        const data = await response.json();
-
-        // Fetch lead counts for each agentEmail from Lead CRM
-        const updatedAgents = await Promise.all(
-          data.map(async (agent) => {
-            try {
-              const countRes = await fetch(
-                // `${API_BASE_URL}/api/leads/count/${agent.agentEmail}`
-                 `https://abacco-lead-crm.onrender.com/api/leads/count/${agent.agentEmail}` 
-              );
-              const countData = await countRes.json();
-              return {
-                ...agent,
-                leadEmailCount: countData.success ? countData.count : 0,
-              };
-            } catch (err) {
-              console.error(`Error fetching lead count for ${agent.agentEmail}:`, err);
-              return { ...agent, leadEmailCount: 0 };
-            }
-          })
-        );
-
-        console.log("Fetched email agents with lead counts:", updatedAgents);
-        setEmailAgents(updatedAgents);
-      } catch (error) {
-        console.error("Error fetching email agents:", error);
-      }
-    };
-
-
-    fetchAgents();
-    fetchDomains();
-    fetchEmailAgents();
-  },  [refreshTrigger]);
-
-
-  // Edit states
-  const [editingAgent, setEditingAgent] = useState(null);
-  const [editingDomain, setEditingDomain] = useState(null);
-  const [editingEmailAgent, setEditingEmailAgent] = useState(null);
-
-  // Existing states
-  const [selectedDomain, setSelectedDomain] = useState([]);
-  const [selectedAgentEmails, setSelectedAgentEmails] = useState([]);
-  const [showEmailAgents, setShowEmailAgents] = useState(false);
-  const [noEmailFound, setNoEmailFound] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [visiblePasswords, setVisiblePasswords] = useState({});
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [selectedHost, setSelectedHost] = useState(null);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [selectedView, setSelectedView] = useState("all");
 
-  const handleDomainClick = (domainId) => {
-    if (!domainId) return;
-    const filtered = domains.filter((d) => d.id === domainId);
-    setSelectedDomain(filtered);
-  };
+ useEffect(() => {
+  const fetchAllData = async () => {
+    setLoading(true);
+    try {
+      // 🟢 STEP 1 — Get all hosts/domains/agents
+      const res = await fetch(`${API_BASE_URL}/api/all-info/combined`);
+      const data = await res.json();
 
+      // Flatten all agents from nested structure
+      const allAgents = data.flatMap((host) =>
+        host.domains.flatMap((domain) =>
+          domain.agents.map((a) => ({
+            ...a,
+            domainName: domain.domainName,
+            hostName: host.domainHost,
+          }))
+        )
+      );
 
-  const handleEmailClick = (agentName) => {
-    const filtered = emailAgents.filter(
-      (a) => a.agentName && a.agentName.toLowerCase() === agentName.toLowerCase()
-    );
+      // 🟢 STEP 2 — Enrich each agent with lead count + email status
+      const enrichedAgents = await Promise.all(
+        allAgents.map(async (agent) => {
+          let leadCount = 0;
+          let emailStatus = "inactive";
 
-    if (filtered.length > 0) {
-      setSelectedAgentEmails(filtered);
-      setShowEmailAgents(true);
-      setNoEmailFound(false);
-    } else {
-      setSelectedAgentEmails([]);
-      setShowEmailAgents(true);
-      setNoEmailFound(true);
+          // ✅ Fetch lead count (optional external CRM)
+          try {
+            const leadRes = await fetch(
+              `https://abacco-lead-crm.onrender.com/api/leads/count/${agent.agentEmail}`
+            );
+            const leadData = await leadRes.json();
+            if (leadData.success) leadCount = leadData.count;
+          } catch (err) {
+            console.error(`Lead count error for ${agent.agentEmail}:`, err);
+          }
+
+          // ✅ Fetch email activity (from EmailAccount)
+          try {
+            const emailRes = await fetch(
+              `${API_BASE_URL}/api/all-info/emails/by-agent/${agent.id}`
+            );
+            const emailData = await emailRes.json();
+
+            if (Array.isArray(emailData) && emailData.length > 0) {
+              const hasActive = emailData.some((e) => e.isActive === true);
+              emailStatus = hasActive ? "active" : "inactive";
+            } else {
+              emailStatus = "inactive";
+            }
+          } catch (err) {
+            console.error(`Email fetch error for ${agent.agentEmail}:`, err);
+          }
+
+          // ✅ Employee active status comes from the DB (agent.isActive)
+          const agentStatus = agent.isActive ? "active" : "inactive";
+
+          // Return fully enriched agent
+          return {
+            ...agent,
+            agentStatus,      // from Agent table
+            emailStatus,      // from EmailAccount table
+            leadEmailCount: leadCount,
+          };
+        })
+      );
+
+      // 🟢 STEP 3 — Merge enriched agents back into hosts → domains → agents
+      const updatedHosts = data.map((host) => ({
+        ...host,
+        domains: host.domains.map((domain) => ({
+          ...domain,
+          agents: domain.agents.map((agent) => {
+            const enriched = enrichedAgents.find((ea) => ea.id === agent.id);
+            return enriched ? { ...agent, ...enriched } : agent;
+          }),
+        })),
+      }));
+
+      // 🟢 STEP 4 — Update state
+      console.log("✅ Updated hosts with agent & email statuses:", updatedHosts);
+      setHosts(updatedHosts);
+    } catch (err) {
+      console.error("❌ Error fetching combined data:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const uniqueAgents = agents.filter(
-    (agent, index, self) =>
-      index === self.findIndex(a => a.domain?.id === agent.domain?.id)
-  );
+  fetchAllData();
+}, [refreshTrigger]);
 
-  const filteredAgents = uniqueAgents.filter(agent =>
-    (agent.agentName && agent.agentName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (agent.agentEmail && agent.agentEmail.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (agent.domain?.domainName && agent.domain.domainName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (agent.domain?.domainHost && agent.domain.domainHost.toLowerCase().includes(searchTerm.toLowerCase()))
+
+
+  const totalHosts = hosts.length;
+  const totalDomains = hosts.reduce((sum, h) => sum + h.domains.length, 0);
+  const totalAgents = hosts.reduce(
+    (sum, h) => sum + h.domains.reduce((s, d) => s + d.agents.length, 0),
+    0
   );
 
   const togglePasswordVisibility = (id) => {
-    setVisiblePasswords(prev => ({
+    setVisiblePasswords((prev) => ({
       ...prev,
-      [id]: !prev[id]
+      [id]: !prev[id],
     }));
   };
 
-  // Edit handlers
-  const handleEditAgent = (agent) => {
-    const fullAgent = {
-      id: agent.id,
-      agentName: agent.agentName || "",
-      empId: agent.empId || "",
-      agentEmail: agent.agentEmail || "",
-      agentPassword: agent.agentPassword || "",
-      adminId: agent.adminId || "",
-      domainHost: agent.domain?.domainHost || agent.domainHost || "",
-      loginId: agent.domain?.loginId || agent.loginId || "",
-      loginPass: agent.domain?.loginPass || agent.loginPass || "",
-      customerId: agent.domain?.customerId || agent.customerId || "",
-      // ✅ ensure domainId is present
-      domainId: agent.domainId || (agent.domain && agent.domain.id) || null,
-      domain: agent.domain || null,
+  const handleEditAgent = (host) => {
+    const fullHost = {
+      id: host.id,
+      domainHost: host.domainHost || "",
+      loginId: host.loginId || "",
+      loginPass: host.loginPass || "",
+      customerId: host.customerId || "",
     };
-
-    setEditingAgent(fullAgent);
+    setEditingAgent(fullHost);
   };
 
-
-  const handleEditDomain = (domain) => {
-    const fullDomain = {
-      id: domain.id,
-      domainProvider:
-        domain.domainProvider ||
-        domain.domainHost ||
-        domain.domain?.domainHost ||
-        "",
-      domainName: domain.domainName || domain.domain?.domainName || "",
-      domainPurchaseDate:
-        domain.domainPurchaseDate || domain.domain?.domainPurchaseDate || "",
-      domainExpiryDate:
-        domain.domainExpiryDate || domain.domain?.domainExpiryDate || "",
-      domainEmailHost:
-        domain.domainEmailHost || domain.domain?.domainEmailHost || "",
-      emailHostPurchase:
-        domain.emailHostPurchase || domain.domain?.emailHostPurchase || "",
-      emailHostExpiry:
-        domain.emailHostExpiry || domain.domain?.emailHostExpiry || "",
-      emailCount: domain.emailCount || domain.domain?.emailCount || "",
-      emailAddresses:
-        domain.emailAddresses || domain.domain?.emailAddresses || "",
-      customerId: domain.customerId || domain.domain?.customerId || "",
-    };
-    setEditingDomain(fullDomain);
-  };
-
-
-  const handleEditEmailAgent = (emailAgent) => {
-    // Ensure domainId is available for backend PUT route
-    const fullAgent = {
-      id: emailAgent.id,
-      agentName: emailAgent.agentName || "",
-      empId: emailAgent.empId || "",
-      agentEmail: emailAgent.agentEmail || "",
-      agentPassword: emailAgent.agentPassword || "",
-      adminId: emailAgent.adminId || "",
-      domainId:
-        emailAgent.domainId ||
-        (emailAgent.domain && emailAgent.domain.id) ||
-        null,
-    };
-
-    setEditingEmailAgent(fullAgent);
-  };
-
-
-const handleSaveAgent = async () => {
-  if (!editingAgent) return;
-
-  try {
-    const domainId =
-      editingAgent.domainId ||
-      (editingAgent.domain && editingAgent.domain.id);
-
-    if (!domainId) {
-      alert("❌ Missing domain ID. Cannot update agent.");
-      return;
+  const handleSaveAgent = async () => {
+    if (!editingAgent) return;
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/all-info/hosts/${editingAgent.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editingAgent),
+        }
+      );
+      if (!response.ok) throw new Error("Failed to update host info");
+      alert("✅ Host updated successfully!");
+      setEditingAgent(null);
+      setRefreshTrigger((p) => p + 1);
+    } catch (err) {
+      console.error("❌ Error saving host:", err);
+      alert("❌ Failed to save host changes.");
     }
-
-    const response = await fetch(`${API_BASE_URL}api/domains/${domainId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        domain: {
-          domainHost: editingAgent.domainHost,
-          loginId: editingAgent.loginId,
-          loginPass: editingAgent.loginPass,
-          customerId: editingAgent.customerId,
-        },
-        agents: [
-          {
-            id: editingAgent.id,
-            agentName: editingAgent.agentName,
-            empId: editingAgent.empId,
-            agentEmail: editingAgent.agentEmail,
-            agentPassword: editingAgent.agentPassword,
-            adminId: editingAgent.adminId,
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) throw new Error("Failed to update agent");
-
-    await response.json();
-
-    // ✅ Auto refresh data everywhere
-    setRefreshTrigger(prev => prev + 1);
-
-    setEditingAgent(null);
-    alert("✅ Agent updated successfully!");
-  } catch (err) {
-    console.error("Error saving agent:", err);
-    alert("❌ Failed to update agent. Check console for details.");
-  }
-};
-
-
-
-
- const handleSaveDomain = async () => {
-  if (!editingDomain) return;
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/domains/${editingDomain.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        domain: {
-          domainHost: editingDomain.domainProvider,
-          domainName: editingDomain.domainName,
-          domainPurchaseDate: editingDomain.domainPurchaseDate,
-          domainExpiryDate: editingDomain.domainExpiryDate,
-          domainEmailHost: editingDomain.domainEmailHost,
-          emailHostPurchase: editingDomain.emailHostPurchase,
-          emailHostExpiry: editingDomain.emailHostExpiry,
-          emailCount: editingDomain.emailCount,
-          emailAddresses: editingDomain.emailAddresses,
-          customerId: editingDomain.customerId,
-        },
-        agents: editingDomain.agents || [],
-      }),
-    });
-
-    if (!response.ok) throw new Error("Failed to update domain");
-
-    await response.json();
-
-    // ✅ Auto refresh data
-    setRefreshTrigger(prev => prev + 1);
-
-    setEditingDomain(null);
-    alert("✅ Domain updated successfully!");
-  } catch (err) {
-    console.error("Error saving domain:", err);
-    alert("❌ Failed to save domain changes. Check console for details.");
-  }
-};
-
-
-
- const handleSaveEmailAgent = async () => {
-  if (!editingEmailAgent) return;
-
-  try {
-    const domainId =
-      editingEmailAgent.domainId ||
-      (editingEmailAgent.domain && editingEmailAgent.domain.id);
-
-    if (!domainId) {
-      alert("❌ Missing domain ID for this agent. Cannot update.");
-      return;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/domains/${domainId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agents: [
-          {
-            id: editingEmailAgent.id,
-            agentName: editingEmailAgent.agentName,
-            empId: editingEmailAgent.empId,
-            agentEmail: editingEmailAgent.agentEmail,
-            agentPassword: editingEmailAgent.agentPassword,
-            adminId: editingEmailAgent.adminId,
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) throw new Error("Failed to update email agent");
-
-    await response.json();
-
-    // ✅ Auto refresh data
-    setRefreshTrigger(prev => prev + 1);
-
-    setEditingEmailAgent(null);
-    alert("✅ Email agent updated successfully!");
-  } catch (err) {
-    console.error("Error saving email agent:", err);
-    alert("❌ Failed to save email agent changes. Check console for details.");
-  }
-};
-
-
-
-  const handleInputChange = (e, setState) => {
-    const { name, value } = e.target;
-    setState(prev => ({
-      ...prev,
-      [name]: value
-    }));
   };
+
+  const handleViewHostDetails = (host) => {
+    setSelectedHost(host);
+  };
+
+  const filteredHosts = hosts.filter(
+    (h) =>
+      h.domainHost?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      h.loginId?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-white">
+      {/* Modern Header with White Background */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <Globe className="w-6 h-6 text-white" />
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-2xl blur-lg opacity-75 animate-pulse"></div>
+                <div className="relative w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-xl">
+                  <Server className="w-6 h-6 text-white" />
+                </div>
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-800">Domain Manager</h1>
-                <p className="text-sm text-slate-500">Manage your domains and email accounts</p>
+                <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                  Domain Manager
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600">
+                  Centralized hosting control
+                </p>
               </div>
             </div>
-            <div className="flex items-center space-x-2 text-sm text-slate-600">
-              <Calendar className="w-4 h-4" />
-              <span>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+            <div className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gray-50 border border-gray-200">
+              <Calendar className="w-4 h-4 text-gray-500" />
+              <span className="text-sm text-gray-700">
+                {new Date().toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search Bar */}
-        <div className="mb-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* Enhanced Search Bar */}
+        <div className="mb-6 sm:mb-8 relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl blur-xl opacity-10 group-hover:opacity-20 transition-opacity"></div>
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by domain host, login ID, or customer ID..."
+              placeholder="Search hosts, domains, or logins..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+              className="w-full pl-12 pr-4 py-3 sm:py-4 bg-white border border-gray-300 rounded-2xl text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
             />
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100 text-sm font-medium">Total Agents</p>
-                <p className="text-3xl font-bold mt-1">{agents.length}</p>
-              </div>
-              <User className="w-12 h-12 text-blue-200 opacity-80" />
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100 text-sm font-medium">Total Domains</p>
-                <p className="text-3xl font-bold mt-1">{domains.length}</p>
-              </div>
-              <Globe className="w-12 h-12 text-purple-200 opacity-80" />
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-indigo-100 text-sm font-medium">Email Accounts</p>
-                <p className="text-3xl font-bold mt-1">{emailAgents.length}</p>
-              </div>
-              <Mail className="w-12 h-12 text-indigo-200 opacity-80" />
-            </div>
-          </div>
-        </div>
-
-        {/* Domain Hosting Accounts */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white mb-[2rem]">
-            <h2 className="text-lg font-semibold text-slate-800 flex items-center">
-              <Globe className="w-5 h-5 mr-2 text-indigo-600" />
-              Domain Hosting Accounts
-            </h2>
-          </div>
-          {/* Domain Hosting Accounts */}
-          <div className="bg-white shadow-sm border border-slate-200 overflow-hidden ">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200 ">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Domain Host</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Login ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Password</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Customer ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredAgents.map((agent) => (
-                    <tr key={agent.id} className="hover:bg-slate-50 transition">
-
-                      {/* Domain Host - show only once */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-3">
-                            <Globe className="w-4 h-4 text-indigo-600" />
-                          </div>
-                          <span className="font-medium text-slate-800">
-                            {agent.domain?.domainHost || agent.domainHost || "—"}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Login ID */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center text-slate-600">
-                          <Mail className="w-4 h-4 mr-2 text-slate-400" />
-                          {agent.domain?.loginId || "—"}
-                        </div>
-                      </td>
-
-                      {/* Password */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center text-slate-600">
-                          <Lock className="w-4 h-4 mr-2 text-slate-400" />
-                          <span className="font-mono text-sm">
-                            {visiblePasswords[`agent-${agent.id}`]
-                              ? agent.domain?.loginPass
-                              : "••••••••"}
-                          </span>
-                          <button
-                            onClick={() => togglePasswordVisibility(`agent-${agent.id}`)}
-                            className="ml-2 p-1 hover:bg-slate-100 rounded transition"
-                          >
-                            {visiblePasswords[`agent-${agent.id}`] ? (
-                              <EyeOff className="w-4 h-4 text-slate-500" />
-                            ) : (
-                              <Eye className="w-4 h-4 text-slate-500" />
-                            )}
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* Customer ID */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-sm font-medium">
-                          {agent.domain?.customerId || "—"}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleDomainClick(agent.domain?.id)}
-                            className="inline-flex items-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition shadow-sm"
-                          >
-                            View Domains
-                            <ChevronRight className="w-4 h-4 ml-1" />
-                          </button>
-                          <button
-                            onClick={() => handleEditAgent(agent)}
-                            className="inline-flex items-center px-3 py-1.5 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition shadow-sm"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Customer Domain Info Modal/Section */}
-        {selectedDomain.length > 0 && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center">
-                  <Globe className="w-5 h-5 mr-2 text-indigo-600" />
-                  Customer Domain Information
-                </h2>
-                <button
-                  onClick={() => setSelectedDomain([])}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-              <div className="overflow-x-auto flex-1 p-6">
-                <div className="space-y-4">
-                  {selectedDomain.map((d) => (
-                    <div key={d.customerId} className="bg-gradient-to-br from-slate-50 to-white border border-slate-200 rounded-lg p-6 shadow-sm">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer ID</p>
-                          <p className="text-sm font-medium text-slate-800">{d.customerId}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Domain Provider</p>
-                          <p className="text-sm font-medium text-slate-800">{d.domainHost}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Domain Name</p>
-                          <div className="flex items-center">
-                            <p className="text-sm font-medium text-indigo-600">{d.domainName}</p>
-                            <ExternalLink className="w-3 h-3 ml-1 text-slate-400" />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Purchase Date</p>
-                          <p className="text-sm font-medium text-slate-800">{d.domainPurchaseDate}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Expiry Date</p>
-                          <p className="text-sm font-medium text-red-600">{d.domainExpiryDate}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Email Host</p>
-                          <p className="text-sm font-medium text-slate-800">{d.domainEmailHost}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Email Host Purchase</p>
-                          <p className="text-sm font-medium text-slate-800">{d.emailHostPurchase}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Email Host Expiry</p>
-                          <p className="text-sm font-medium text-red-600">{d.emailHostExpiry}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Email Count</p>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                            {d.emailCount} emails
-                          </span>
-                        </div>
-                        <div className="space-y-1 md:col-span-2">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Assigned To</p>
-                          {d.agents && d.agents.map((agent) => (
-                            <button
-                              key={agent.id}
-                              onClick={() => handleEmailClick(agent.agentName)}
-                              className="inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700 underline mr-2"
-                            >
-                              {agent.agentName}
-                              <ChevronRight className="w-4 h-4 ml-1" />
-                            </button>
-                          ))}
-
-                        </div>
-                        <div className="md:col-span-3 flex justify-end">
-                          <button
-                            onClick={() => handleEditDomain(d)}
-                            className="inline-flex items-center px-3 py-1.5 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition shadow-sm"
-                          >
-                            <Edit className="w-4 h-4 mr-1" />
-                            Edit Domain
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+        {/* Modern Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-10">
+          <div
+            onClick={() => setSelectedView("hosts")}
+            className="group cursor-pointer relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition-all"></div>
+            <div className="relative bg-white rounded-2xl shadow-md hover:shadow-lg transition-all duration-300 p-6 border border-gray-200 group-hover:border-blue-400/50 group-hover:scale-105">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg">
+                  <Server className="w-6 h-6 text-white" />
                 </div>
+                <ChevronRight className="w-5 h-5 text-blue-500 group-hover:translate-x-1 transition-transform" />
               </div>
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-                <button
-                  onClick={() => setSelectedDomain([])}
-                  className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium transition shadow-sm"
-                >
-                  Close
-                </button>
-              </div>
+              <p className="text-sm text-gray-600 font-medium mb-1">
+                Hosting Accounts
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">{totalHosts}</h2>
             </div>
+          </div>
+
+          <div
+            onClick={() => setSelectedView("domains")}
+            className="group cursor-pointer relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition-all"></div>
+            <div className="relative bg-white rounded-2xl shadow-md hover:shadow-lg transition-all duration-300 p-6 border border-gray-200 group-hover:border-cyan-400/50 group-hover:scale-105">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl shadow-lg">
+                  <Globe className="w-6 h-6 text-white" />
+                </div>
+                <ChevronRight className="w-5 h-5 text-cyan-500 group-hover:translate-x-1 transition-transform" />
+              </div>
+              <p className="text-sm text-gray-600 font-medium mb-1">
+                Total Domains
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">{totalDomains}</h2>
+            </div>
+          </div>
+
+          <div
+            onClick={() => setSelectedView("agents")}
+            className="group cursor-pointer relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition-all"></div>
+            <div className="relative bg-white rounded-2xl shadow-md hover:shadow-lg transition-all duration-300 p-6 border border-gray-200 group-hover:border-purple-400/50 group-hover:scale-105">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg">
+                  <Users className="w-6 h-6 text-white" />
+                </div>
+                <ChevronRight className="w-5 h-5 text-purple-500 group-hover:translate-x-1 transition-transform" />
+              </div>
+              <p className="text-sm text-gray-600 font-medium mb-1">
+                Total Employee's
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">{totalAgents}</h2>
+            </div>
+          </div>
+        </div>
+
+        {/* Back Button */}
+        {selectedView !== "all" && (
+          <div className="flex justify-end mb-6">
+            <button
+              onClick={() => setSelectedView("all")}
+              className="inline-flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-gray-800 font-medium transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Overview
+            </button>
           </div>
         )}
 
-        {/* Email Agents Modal/Section */}
-        {showEmailAgents && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-white flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center">
-                  <Mail className="w-5 h-5 mr-2 text-purple-600" />
-                  Email Agent Information
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowEmailAgents(false);
-                    setNoEmailFound(false);
-                  }}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-              <div className="overflow-auto flex-1 p-6">
-                {noEmailFound ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                      <Mail className="w-8 h-8 text-red-600" />
-                    </div>
-                    <p className="text-lg font-medium text-slate-800 mb-2">No Email Accounts Found</p>
-                    <p className="text-sm text-slate-500">No email has been provided for this agent.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedAgentEmails && selectedAgentEmails.map((a) => (
-                      <div key={a.id} className="bg-gradient-to-br from-slate-50 to-white border border-slate-200 rounded-lg p-5 shadow-sm">
-                        <div className="flex items-start justify-between mb-4">
-                          <div className="flex items-center">
-                            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-                              <User className="w-5 h-5 text-purple-600" />
-                            </div>
-                            <div>
-                              <p className="font-semibold text-slate-800">{a.agentName}</p>
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${a.adminId === 'Admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-                                {a.adminId}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleEditEmailAgent(a)}
-                            className="p-1.5 hover:bg-slate-100 rounded-lg transition"
-                          >
-                            <Edit className="w-4 h-4 text-slate-500" />
-                          </button>
-                        </div>
-                        <div className="space-y-3">
-                          {/* <div className="flex items-center text-sm">
-                            <Mail className="w-4 h-4 mr-2 text-slate-400" />
-                            <span className="text-slate-600">{a.agentEmail}</span>
-                          </div> */}
-                          <div className="flex items-center text-sm justify-between">
-                            <div className="flex items-center">
-                              <Mail className="w-4 h-4 mr-2 text-slate-400" />
-                              <span className="text-slate-600">{a.agentEmail}</span>
-                            </div>
-                            {a.leadEmailCount !== undefined && (
-                              <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-100 text-blue-700">
-                                {a.leadEmailCount} Leads
-                              </span>
-                            )}
-                          </div>
+        {/* Hosts View - Enhanced Mobile Table */}
+        {(selectedView === "all" || selectedView === "hosts") && (
+          <div className="bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center">
+                <Server className="w-5 h-5 mr-2 text-blue-600" />
+                Hosting Accounts
+              </h2>
+            </div>
 
-                          <div className="flex items-center text-sm">
-                            <Lock className="w-4 h-4 mr-2 text-slate-400" />
-                            <span className="text-slate-600 font-mono">
-                              {visiblePasswords[`email-${a.id}`] ? a.agentPassword : '••••••••'}
+            {loading ? (
+              <div className="py-16 text-center">
+                <div className="inline-block w-12 h-12 border-4 border-blue-400/30 border-t-blue-400 rounded-full animate-spin"></div>
+                <p className="mt-4 text-gray-600">Loading...</p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop Table */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Host
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Login ID
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Password
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Customer ID
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {filteredHosts.map((host) => (
+                        <tr
+                          key={host.id}
+                          className="hover:bg-gray-50 transition-colors"
+                        >
+                          <td className="px-6 py-4 font-medium text-gray-900">
+                            {host.domainHost}
+                          </td>
+                          <td className="px-6 py-4 text-gray-700">
+                            {host.loginId}
+                          </td>
+                          <td className="px-6 py-4 font-mono text-gray-700">
+                            <div className="flex items-center space-x-2">
+                              <span>
+                                {visiblePasswords[`host-${host.id}`]
+                                  ? host.loginPass
+                                  : "••••••••"}
+                              </span>
+                              <button
+                                onClick={() =>
+                                  togglePasswordVisibility(`host-${host.id}`)
+                                }
+                                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                              >
+                                {visiblePasswords[`host-${host.id}`] ? (
+                                  <EyeOff className="w-4 h-4 text-gray-500" />
+                                ) : (
+                                  <Eye className="w-4 h-4 text-gray-500" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
+                              {host.customerId || "—"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleViewHostDetails(host)}
+                                className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-sm font-medium rounded-lg transition shadow"
+                              >
+                                View
+                                <ChevronRight className="w-4 h-4 ml-1" />
+                              </button>
+                              <button
+                                onClick={() => handleEditAgent(host)}
+                                className="inline-flex items-center px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium rounded-lg transition-colors"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="lg:hidden p-4 space-y-4">
+                  {filteredHosts.map((host) => (
+                    <div
+                      key={host.id}
+                      className="bg-gray-50 rounded-xl p-4 border border-gray-200 hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <h3 className="font-semibold text-gray-900 text-lg">
+                          {host.domainHost}
+                        </h3>
+                        <button
+                          onClick={() => handleEditAgent(host)}
+                          className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                        >
+                          <Edit className="w-4 h-4 text-gray-600" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 mb-4">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Login ID</p>
+                          <p className="text-sm text-gray-900">{host.loginId}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Password</p>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-mono text-gray-900">
+                              {visiblePasswords[`host-${host.id}`]
+                                ? host.loginPass
+                                : "••••••••"}
                             </span>
                             <button
-                              onClick={() => togglePasswordVisibility(`email-${a.id}`)}
-                              className="ml-2 p-1 hover:bg-slate-100 rounded transition"
+                              onClick={() =>
+                                togglePasswordVisibility(`host-${host.id}`)
+                              }
+                              className="p-1 hover:bg-gray-100 rounded transition-colors"
                             >
-                              {visiblePasswords[`email-${a.id}`] ? (
-                                <EyeOff className="w-4 h-4 text-slate-500" />
+                              {visiblePasswords[`host-${host.id}`] ? (
+                                <EyeOff className="w-4 h-4 text-gray-500" />
                               ) : (
-                                <Eye className="w-4 h-4 text-slate-500" />
+                                <Eye className="w-4 h-4 text-gray-500" />
                               )}
                             </button>
                           </div>
                         </div>
+
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Customer ID</p>
+                          <span className="inline-block px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
+                            {host.customerId || "—"}
+                          </span>
+                        </div>
                       </div>
-                    ))}
+
+                      <button
+                        onClick={() => handleViewHostDetails(host)}
+                        className="w-full flex items-center justify-center px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg transition shadow"
+                      >
+                        View Details
+                        <ChevronRight className="w-4 h-4 ml-2" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Domains View - Enhanced Grid */}
+        {selectedView === "domains" && (
+          <div className="bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden p-4 sm:p-6">
+            <h2 className="text-base sm:text-lg font-semibold mb-6 text-gray-900 flex items-center">
+              <Globe className="w-5 h-5 mr-2 text-cyan-600" /> All Domains
+            </h2>
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {hosts.flatMap((h) =>
+                h.domains.map((d) => (
+                  <div
+                    key={d.id}
+                    className="group relative overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-all"></div>
+                    <div className="relative bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all">
+                      <div className="flex items-start justify-between mb-3">
+                        <Globe className="w-5 h-5 text-cyan-600 flex-shrink-0" />
+                        {d.domainPrice && (
+                          <span className="px-2 py-1 bg-green-100 text-green-800 rounded-lg text-xs font-medium">
+                            ₹{d.domainPrice}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-semibold text-gray-900 mb-3 break-all">
+                        {d.domainName}
+                      </h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center text-gray-700">
+                          <Building2 className="w-4 h-4 mr-2 text-gray-500" />
+                          <span className="text-xs">{h.domainHost}</span>
+                        </div>
+                        {d.domainExpiryDate && (
+                          <div className="flex items-center text-red-600">
+                            <CalendarIcon className="w-4 h-4 mr-2 text-red-500" />
+                            <span className="text-xs">
+                              Exp: {new Date(d.domainExpiryDate).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Agents View - Enhanced Cards */}
+        {selectedView === "agents" && (
+          <div className="bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden p-4 sm:p-6">
+            <h2 className="text-base sm:text-lg font-semibold mb-6 text-gray-900 flex items-center">
+              <Users className="w-5 h-5 mr-2 text-purple-600" /> All Employee's
+            </h2>
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {hosts.flatMap((h) =>
+                h.domains.flatMap((d) =>
+                  d.agents.map((a) => (
+                    <div
+                      key={a.id}
+                      className="group relative overflow-hidden cursor-pointer"
+                      onClick={() => setSelectedAgent(a)}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl blur-lg opacity-50 group-hover:opacity-75 transition-all"></div>
+                      <div className="relative bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-all">
+                        <div className="flex items-center mb-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mr-3">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 truncate">
+                              {a.agentName || "Unnamed"}
+                            </h3>
+                          </div>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-start text-gray-700">
+                            <Mail className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0 mt-0.5" />
+                            <span className="text-xs break-all">{a.agentEmail || "—"}</span>
+                          </div>
+                          <div className="flex items-center text-blue-700">
+                            <Globe className="w-4 h-4 mr-2 text-blue-500 flex-shrink-0" />
+                            <span className="text-xs truncate">{d.domainName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Host Details Modal - Enhanced and Responsive */}
+        {selectedHost && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden border border-gray-200">
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex justify-between items-center">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+                  {selectedHost.domainHost} — Domains
+                </h2>
                 <button
-                  onClick={() => {
-                    setShowEmailAgents(false);
-                    setNoEmailFound(false);
-                  }}
-                  className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium transition shadow-sm"
+                  onClick={() => setSelectedHost(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
                 >
-                  Close
+                  <X className="w-5 h-5 text-gray-500" />
                 </button>
+              </div>
+
+              <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+                <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {selectedHost.domains.length > 0 ? (
+                    selectedHost.domains.map((d) => (
+                      <div
+                        key={d.id}
+                        className="bg-gray-50 border border-gray-200 rounded-xl p-5 hover:bg-white transition-colors"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <h3 className="text-sm sm:text-base font-semibold text-gray-900 break-all flex-1">
+                            {d.domainName}
+                          </h3>
+                          {d.domainPrice && (
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-lg text-xs font-medium ml-2 flex-shrink-0">
+                              ₹{d.domainPrice}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-2 text-sm text-gray-700 mb-4">
+                          {d.domainPurchaseDate && (
+                            <div className="flex items-center">
+                              <CalendarIcon className="w-4 h-4 mr-2 text-gray-500" />
+                              <span className="text-xs">
+                                Purchase: {new Date(d.domainPurchaseDate).toLocaleDateString('en-IN')}
+                              </span>
+                            </div>
+                          )}
+                          {d.domainExpiryDate && (
+                            <div className="flex items-center text-red-600">
+                              <CalendarIcon className="w-4 h-4 mr-2 text-red-500" />
+                              <span className="text-xs">
+                                Expiry: {new Date(d.domainExpiryDate).toLocaleDateString('en-IN')}
+                              </span>
+
+                            </div>
+                          )}
+                          <div className="flex items-start">
+                            <Mail className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0 mt-0.5" />
+                            <span className="text-xs break-all">
+                              {d.domainEmailHost || "—"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-gray-500 uppercase mb-2">
+                            Employee's:
+                          </p>
+                          {d.agents.length > 0 ? (
+                            <div className="space-y-2">
+                              {d.agents.map((a) => (
+                                <button
+                                  key={a.id}
+                                  onClick={() => setSelectedAgent(a)}
+                                  className="w-full text-left px-3 py-2 rounded-lg bg-white hover:bg-blue-50 text-sm text-gray-900 font-medium transition-colors flex items-center"
+                                >
+                                  <User className="w-4 h-4 mr-2 text-blue-600" />
+                                  <span className="truncate">{a.agentName || "Unnamed"}</span>
+                                  <ChevronRight className="w-4 h-4 ml-auto text-gray-500" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">
+                              No agents assigned
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="col-span-full text-center text-gray-500 italic py-8">
+                      No domains found for this host.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ===================== Edit Agent Modal ===================== */}
-        {editingAgent && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full">
-              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">Edit Host</h2>
+        {/* Agent Details Modal - Enhanced */}
+        {selectedAgent && (
+          <div className="fixed inset-0 bg-black/50  backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+           <div className="bg-white shadow-2xl border border-gray-200 rounded-2xl w-full max-w-md sm:max-w-lg md:max-w-2xl lg:max-w-3xl xl:max-w-5xl max-h-[90vh] overflow-y-auto transition-all duration-300 mx-auto">
+             
+              <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <User className="w-5 h-5 mr-2 text-purple-600" />
+                  Employee Details
+                </h3>
                 <button
-                  onClick={() => setEditingAgent(null)}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition"
+                  onClick={() => setSelectedAgent(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <X className="w-5 h-5 text-slate-500" />
+                  <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
 
-              <div className="p-6">
-                <table className="w-full">
-                  <tbody>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700 w-1/3">Domain Host</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainHost"
-                          value={editingAgent.domainHost || ""}
-                          onChange={(e) => handleInputChange(e, setEditingAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Login ID</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="loginId"
-                          value={editingAgent.loginId || ""}
-                          onChange={(e) => handleInputChange(e, setEditingAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Password</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="loginPass"
-                          value={editingAgent.loginPass || ""}
-                          onChange={(e) => handleInputChange(e, setEditingAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-3 pr-4 font-medium text-slate-700">Customer ID</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="customerId"
-                          value={editingAgent.customerId || ""}
-                          onChange={(e) => handleInputChange(e, setEditingAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="p-6 space-y-4">
+                {/* Profile Avatar */}
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl">
+                    <User className="w-10 h-10 text-white" />
+                  </div>
+                </div>
+
+                {/* Name + Status */}
+                {/* Agent Status */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Employee Status</p>
+                    <p className="font-medium text-gray-900">{selectedAgent.agentName || "—"}</p>
+                  </div>
+                  <span
+                    className={`px-3 py-1 text-xs font-medium rounded-full ${selectedAgent.agentStatus === "active"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
+                      }`}
+                  >
+                    {selectedAgent.agentStatus === "active" ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                {/* Email Status */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Email Status</p>
+                    <p className="font-medium text-gray-900 break-all">{selectedAgent.agentEmail}</p>
+                  </div>
+                  <span
+                    className={`px-3 py-1 text-xs font-medium rounded-full ${selectedAgent.emailStatus === "active"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
+                      }`}
+                  >
+                    {selectedAgent.emailStatus === "active" ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+
+                {/* Email + Email Status */}
+                {/* <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Email</p>
+                    <p className="font-medium text-gray-900 break-all">{selectedAgent.agentEmail}</p>
+                  </div>
+                  <span
+                    className={`px-3 py-1 text-xs font-medium rounded-full ${selectedAgent.emailStatus === "active"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-red-100 text-red-800"
+                      }`}
+                  >
+                    {selectedAgent.emailStatus === "active" ? "Active" : "Inactive"}
+                  </span>
+                </div> */}
+
+                {/* Leads */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 text-center">
+                  <p className="text-xs text-gray-500 mb-1">Leads Assigned</p>
+                  <p className="text-3xl font-bold text-purple-600">
+                    {selectedAgent.leadEmailCount ?? 0}
+                  </p>
+                </div>
+
+                {/* Password */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <p className="text-xs text-gray-500 mb-2">Password</p>
+                  <p className="font-mono text-gray-900 bg-white px-3 py-2 rounded-lg break-all">
+                    {selectedAgent.agentPassword || "—"}
+                  </p>
+                </div>
               </div>
 
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end space-x-3">
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+                <button
+                  onClick={() => setSelectedAgent(null)}
+                  className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-medium transition shadow"
+                >
+                  Close
+                </button>
+              </div>
+              
+            </div>
+          </div>
+        )}
+
+        {/* Edit Host Modal - Enhanced */}
+        {editingAgent && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full border border-gray-200">
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex justify-between items-center">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center">
+                  <Edit className="w-5 h-5 mr-2 text-blue-600" />
+                  Edit Hosting Account
+                </h2>
                 <button
                   onClick={() => setEditingAgent(null)}
-                  className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium transition"
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6 space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Domain Host</label>
+                  <input
+                    type="text"
+                    name="domainHost"
+                    placeholder="e.g., GoDaddy, Namecheap"
+                    value={editingAgent.domainHost}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        domainHost: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Login ID</label>
+                  <input
+                    type="text"
+                    name="loginId"
+                    placeholder="Enter login ID"
+                    value={editingAgent.loginId}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        loginId: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Password</label>
+                  <input
+                    type="text"
+                    name="loginPass"
+                    placeholder="Enter password"
+                    value={editingAgent.loginPass}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        loginPass: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Customer ID</label>
+                  <input
+                    type="text"
+                    name="customerId"
+                    placeholder="Enter customer ID"
+                    value={editingAgent.customerId}
+                    onChange={(e) =>
+                      setEditingAgent({
+                        ...editingAgent,
+                        customerId: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  />
+                </div>
+              </div>
+
+              <div className="px-4 sm:px-6 py-4 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row justify-end gap-3">
+                <button
+                  onClick={() => setEditingAgent(null)}
+                  className="w-full sm:w-auto px-6 py-2 text-gray-800 hover:bg-gray-100 rounded-xl font-medium transition-colors border border-gray-300"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveAgent}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition shadow-sm"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===================== Edit Domain Modal ===================== */}
-
-        {editingDomain && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full">
-              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">Edit Domain</h2>
-                <button
-                  onClick={() => setEditingDomain(null)}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-
-              <div className="p-6 overflow-y-auto max-h-[60vh]">
-                <table className="w-full">
-                  <tbody>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700 w-1/3">Domain Provider</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainProvider"
-                          value={editingDomain.domainProvider || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Domain Name</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainName"
-                          value={editingDomain.domainName || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Purchase Date</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainPurchaseDate"
-                          value={editingDomain.domainPurchaseDate || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Expiry Date</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainExpiryDate"
-                          value={editingDomain.domainExpiryDate || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Email Host</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="domainEmailHost"
-                          value={editingDomain.domainEmailHost || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Email Host Purchase</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="emailHostPurchase"
-                          value={editingDomain.emailHostPurchase || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Email Host Expiry</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="emailHostExpiry"
-                          value={editingDomain.emailHostExpiry || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Email Count</td>
-                      <td className="py-3">
-                        <input
-                          type="number"
-                          name="emailCount"
-                          value={editingDomain.emailCount || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-3 pr-4 font-medium text-slate-700">Assigned Emails</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="emailAddresses"
-                          value={editingDomain.emailAddresses || ""}
-                          onChange={(e) => handleInputChange(e, setEditingDomain)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end space-x-3">
-                <button
-                  onClick={() => setEditingDomain(null)}
-                  className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveDomain}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition shadow-sm"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-
-        {/* Edit Email Agent Modal */}
-        {editingEmailAgent && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full">
-              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-white flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">Edit Email Agent</h2>
-                <button
-                  onClick={() => setEditingEmailAgent(null)}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-              <div className="p-6">
-                <table className="w-full">
-                  <tbody>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700 w-1/3">Agent Name</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="agentName"
-                          value={editingEmailAgent.agentName}
-                          onChange={(e) => handleInputChange(e, setEditingEmailAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700 w-1/3">Employee Id</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="empId"
-                          value={editingEmailAgent.empId}
-                          onChange={(e) => handleInputChange(e, setEditingEmailAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Agent Email</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="agentEmail"
-                          value={editingEmailAgent.agentEmail}
-                          onChange={(e) => handleInputChange(e, setEditingEmailAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-3 pr-4 font-medium text-slate-700">Agent Password</td>
-                      <td className="py-3">
-                        <input
-                          type="text"
-                          name="agentPassword"
-                          value={editingEmailAgent.agentPassword}
-                          onChange={(e) => handleInputChange(e, setEditingEmailAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-3 pr-4 font-medium text-slate-700">Admin ID</td>
-                      <td className="py-3">
-                        <select
-                          name="adminId"
-                          value={editingEmailAgent.adminId}
-                          onChange={(e) => handleInputChange(e, setEditingEmailAgent)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        >
-                          <option value="normal">Normal</option>
-                          <option value="Admin">Admin</option>
-                        </select>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end space-x-3">
-                <button
-                  onClick={() => setEditingEmailAgent(null)}
-                  className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEmailAgent}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition shadow-sm"
+                  className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl font-medium transition shadow"
                 >
                   Save Changes
                 </button>

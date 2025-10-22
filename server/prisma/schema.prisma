@@ -19,38 +19,82 @@ model User {
   createdAt DateTime @default(now())
 }
 
-model Domain {
-  id                 Int      @id @default(autoincrement())
-  domainHost         String
-  loginId            String
-  loginPass          String
-  customerId         String
-  domainName         String
-  domainPurchaseDate DateTime
-  domainExpiryDate   DateTime
-  domainPrice        Int
-  domainEmailHost    String
-  emailHostPurchase  DateTime
-  emailHostExpiry    DateTime
-  emailPrice         Int
-  emailCount         Int
-  emailAddresses     String?
-  createdAt          DateTime @default(now())
+//
+// 🌐 DomainHostAccount — stores hosting login credentials (GoDaddy, Hostinger, etc.)
+//
+model DomainHostAccount {
+  id         Int      @id @default(autoincrement())
+  domainHost String // Example: "GoDaddy", "Hostinger"
+  loginId    String
+  loginPass  String
+  customerId String?
+  createdAt  DateTime @default(now())
+  isActive   Boolean  @default(true)
 
-  // Relationship: one domain → many agents
+  // One host account can have many domains
+  domains Domain[]
+}
+
+//
+// 🌍 Domain — actual purchased domain names under a host account
+//
+model Domain {
+  id                 Int       @id @default(autoincrement())
+  domainName         String
+  domainPurchaseDate DateTime?
+  domainExpiryDate   DateTime?
+  domainPrice        Float?
+  domainEmailHost    String?
+  emailHostPurchase  DateTime?
+  emailHostExpiry    DateTime?
+  emailPrice         Float?
+  emailCount         Int? // total email accounts purchased
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relation to hosting account (login info)
+  hostAccountId Int
+  hostAccount   DomainHostAccount @relation(fields: [hostAccountId], references: [id])
+
+  // One domain can have multiple agents
   agents Agent[]
+
+  // 🆕 One domain can have multiple email accounts
+  emailAccounts EmailAccount[]
+}
+
+model EmailAccount {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique
+  password          String?
+  emailPurchaseDate DateTime?
+  emailExpiryDate   DateTime?
+  createdAt         DateTime  @default(now())
+  isActive          Boolean   @default(true)
+
+  domainId Int
+  domain   Domain @relation(fields: [domainId], references: [id])
+
+  // 👇 Each email belongs to exactly one agent
+  agentId Int?
+  agent   Agent? @relation(fields: [agentId], references: [id])
 }
 
 model Agent {
   id            Int      @id @default(autoincrement())
-  agentName     String
-  empId         String?  @unique
-  agentEmail    String   @unique
-  agentPassword String
-  adminId       String // can store role like 'Admin' or 'Normal'
+  agentName     String?
+  empId         String?
+  agentEmail    String?  @unique
+  agentPassword String?
+  adminId       String?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  isActive      Boolean  @default(true)
 
-  // Relationship: each agent belongs to one domain
   domainId Int
   domain   Domain @relation(fields: [domainId], references: [id])
+
+  // 👇 One agent can handle many emails
+  emailAccounts EmailAccount[]
 }
