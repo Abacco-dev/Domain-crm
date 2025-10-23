@@ -51,11 +51,11 @@ model Domain {
   emailCount         Int? // total email accounts purchased
   isActive           Boolean   @default(true)
   createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  updatedAt          DateTime? @updatedAt
 
   // Relation to hosting account (login info)
-  hostAccountId Int
-  hostAccount   DomainHostAccount @relation(fields: [hostAccountId], references: [id])
+  hostAccountId Int?
+  hostAccount   DomainHostAccount? @relation(fields: [hostAccountId], references: [id])
 
   // One domain can have multiple agents
   agents Agent[]
@@ -82,15 +82,15 @@ model EmailAccount {
 }
 
 model Agent {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   agentName     String?
   empId         String?
-  agentEmail    String?  @unique
+  agentEmail    String?   @unique
   agentPassword String?
   adminId       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  isActive      Boolean  @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime? @updatedAt
+  isActive      Boolean   @default(true)
 
   domainId Int
   domain   Domain @relation(fields: [domainId], references: [id])
