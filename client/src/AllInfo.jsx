@@ -288,7 +288,7 @@ export default function AllInfo() {
                 <ChevronRight className="w-5 h-5 text-purple-500 group-hover:translate-x-1 transition-transform" />
               </div>
               <p className="text-sm text-gray-600 font-medium mb-1">
-                Total Employee's
+                Total Mail IDs
               </p>
               <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">{totalAgents}</h2>
             </div>
@@ -589,8 +589,8 @@ export default function AllInfo() {
                 </button>
               </div>
 
-              <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-                <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-80px)] w-full">
+                <div className="flex flex-col gap-4 w-full">
                   {selectedHost.domains.length > 0 ? (
                     selectedHost.domains.map((d) => (
                       <div
@@ -609,6 +609,12 @@ export default function AllInfo() {
                         </div>
 
                         <div className="space-y-2 text-sm text-gray-700 mb-4">
+                          <div className="flex items-start">
+                            <Mail className="w-6 h-6 mr-2 text-lg font-bold text-[#6d59ff] flex-shrink-0 mt-0.5" />
+                            <span className="text-lg break-all font-bold text-[#6d59ff]">
+                              Email Host: {d.domainEmailHost || "—"}
+                            </span>
+                          </div>
                           {d.domainPurchaseDate && (
                             <div className="flex items-center">
                               <CalendarIcon className="w-4 h-4 mr-2 text-gray-500" />
@@ -626,12 +632,7 @@ export default function AllInfo() {
 
                             </div>
                           )}
-                          <div className="flex items-start">
-                            <Mail className="w-4 h-4 mr-2 text-gray-500 flex-shrink-0 mt-0.5" />
-                            <span className="text-xs break-all">
-                              {d.domainEmailHost || "—"}
-                            </span>
-                          </div>
+                          
                         </div>
 
                         <div>
